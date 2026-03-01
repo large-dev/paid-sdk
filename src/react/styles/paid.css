@@ -1,0 +1,29 @@
+/* ─── @paid/sdk self-contained styles ────────────────────────────────────
+ * Import this once in your app:
+ *   import '@paid/sdk/styles.css'
+ *
+ * Or reference it in your CSS:
+ *   @import '@paid/sdk/styles.css';
+ * ────────────────────────────────────────────────────────────────────── */
+
+@keyframes paid-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.4); opacity: 1; }
+}
+
+@keyframes paid-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes paid-bolt-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Optional: apply to the drawer portal */
+[data-paid-drawer] {
+  font-family: 'Courier New', Courier, monospace;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
