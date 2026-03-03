@@ -23,8 +23,11 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18",
@@ -47,6 +50,7 @@
     "typescript": "^5.7.0",
     "viem": "^2.23.0",
     "@wagmi/core": "^2.16.0",
-    "framer-motion": "^11.0.0"
+    "framer-motion": "^11.0.0",
+    "vitest": "^3.0.0"
   }
 }

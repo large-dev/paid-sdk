@@ -130,10 +130,11 @@ export class PaidClient {
   private toDepositParams(payment: PaymentRequest): CreateDepositParams {
     return {
       destination: {
-        destinationAddress: payment.recipient,
+        destinationAddress: payment.destinationContract ?? payment.recipient,
         chainId: this.chainId,
         tokenAddress: payment.inputToken ?? USDC_BASE,
         units: payment.amountRaw,
+        calldata: payment.calldata,
       },
       refundAddress: payment.refundAddress ?? payment.recipient,
       metadata: payment.metadata,

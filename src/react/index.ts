@@ -27,4 +27,5 @@ export type {
   SessionStatusResponse,
   PaidConfig,
   Address,
+  Hex,
 } from '../core/types'

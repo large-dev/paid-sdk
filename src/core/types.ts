@@ -19,6 +19,10 @@ export interface PaymentRequest {
   inputToken?: Address
   /** Arbitrary metadata attached to the session (e.g. orderId). */
   metadata?: Record<string, string>
+  /** Optional calldata to execute on the destination contract after swap. */
+  calldata?: Hex
+  /** Contract address to receive the sweep (used with calldata). Overrides `recipient` as destination. */
+  destinationContract?: Address
 }
 
 // ─── Deposit Session ──────────────────────────────────────────────────────
@@ -75,6 +79,8 @@ export interface TokenInfo {
   balanceUnits: string
   /** User's balance in USD. */
   balanceUsd: number
+  /** Optional URL for the token's logo image. Falls back to text abbreviation if omitted. */
+  logoUrl?: string
 }
 
 export interface SupportedToken {

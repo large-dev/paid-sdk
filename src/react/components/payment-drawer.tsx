@@ -13,6 +13,7 @@ import type {
   PaymentReceipt,
   SessionStatusResponse,
   Address,
+  Hex,
 } from '../../core/types'
 import { NATIVE_TOKEN } from '../../core/types'
 import { usePaidContext } from '../context'
@@ -63,6 +64,10 @@ export interface PaymentDrawerProps {
   receiptTheme?: 'light' | 'dark'
   /** Arbitrary metadata attached to the session. */
   metadata?: Record<string, string>
+  /** Optional calldata to execute on the destination contract after swap. */
+  calldata?: Hex
+  /** Contract address to receive the sweep (used with calldata). Overrides `recipient` as destination. */
+  destinationContract?: Address
   /**
    * Called when the user selects a token and the SDK needs a transaction sent.
    * The integrator must send the tx and return the hash.
@@ -172,6 +177,8 @@ export function PaymentDrawer({
   walletAddress,
   receiptTheme = 'light',
   metadata,
+  calldata,
+  destinationContract,
   onSendTransaction,
   onComplete,
   onBounced,
@@ -237,6 +244,8 @@ export function PaymentDrawer({
           refundAddress: refundAddress ?? recipient,
           amountUsd,
           metadata,
+          calldata,
+          destinationContract,
         })
         setSessionId(session.sessionId)
         setDepositAddress(session.depositAddress)
@@ -250,7 +259,7 @@ export function PaymentDrawer({
     }
 
     createSession()
-  }, [open, depositState, client, recipient, refundAddress, amountUsd, metadata, onError])
+  }, [open, depositState, client, recipient, refundAddress, amountUsd, metadata, calldata, destinationContract, onError])
 
   // ─── Fetch tokens once session is ready ─────────────────────────────
 
