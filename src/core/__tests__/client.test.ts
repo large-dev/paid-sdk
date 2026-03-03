@@ -59,7 +59,7 @@ describe('PaidClient', () => {
       mockFetch.mockReturnValueOnce(jsonResponse({ data: [] }))
       c.getSupportedTokens()
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.getpaid.dev/v1/deposit/tokens',
+        'https://api.paid.studio/v1/deposit/tokens',
         expect.any(Object),
       )
     })

@@ -171,7 +171,7 @@ export const NATIVE_TOKEN: Address = '0x0000000000000000000000000000000000000000
 
 export const USDC_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 
-export const DEFAULT_BASE_URL = 'https://api.getpaid.dev'
+export const DEFAULT_BASE_URL = 'https://api.paid.studio'
 
 export const BOLT_CLIP_PATH =
   'polygon(20% 0%, 80% 0%, 100% 20%, 60% 40%, 90% 40%, 40% 100%, 50% 60%, 10% 60%, 30% 20%)'
