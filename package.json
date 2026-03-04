@@ -1,5 +1,5 @@
 {
-  "name": "@paid/sdk",
+  "name": "@paidstudio/sdk",
   "version": "0.1.0",
   "type": "module",
   "private": false,
@@ -18,7 +18,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
