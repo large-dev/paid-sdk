@@ -1,11 +1,11 @@
-# @paid/sdk
+# @paidstudio/sdk
 
 Drop-in crypto payment infrastructure for any React app. Accept ETH or any ERC-20 on Base, receive USDC.
 
 ## Install
 
 ```bash
-npm install @paid/sdk
+npm install @paidstudio/sdk
 ```
 
 Peer dependencies:
@@ -19,8 +19,8 @@ npm install react react-dom viem @wagmi/core
 The `PaymentDrawer` is a pre-built modal that handles the entire payment flow: session creation, token selection, status polling, and result display.
 
 ```tsx
-import { PaidProvider, PaymentDrawer } from "@paid/sdk/react";
-import "@paid/sdk/styles.css";
+import { PaidProvider, PaymentDrawer } from "@paidstudio/sdk/react";
+import "@paidstudio/sdk/styles.css";
 
 function App() {
   return (
@@ -62,7 +62,7 @@ function Checkout() {
 Use the hooks directly for full control over the payment UX.
 
 ```tsx
-import { PaidProvider, usePaidPayment } from "@paid/sdk/react";
+import { PaidProvider, usePaidPayment } from "@paidstudio/sdk/react";
 
 function CustomPaymentFlow() {
   const payment = usePaidPayment({
@@ -98,7 +98,7 @@ function CustomPaymentFlow() {
 Use `PaidClient` directly without React:
 
 ```ts
-import { PaidClient } from "@paid/sdk";
+import { PaidClient } from "@paidstudio/sdk";
 
 const client = new PaidClient({ publicKey: "pk_live_..." });
 
@@ -120,7 +120,7 @@ const status = await client.getStatus(session.sessionId);
 Verify webhook signatures in your backend:
 
 ```ts
-import { verifyWebhook, parseWebhookPayload } from "@paid/sdk";
+import { verifyWebhook, parseWebhookPayload } from "@paidstudio/sdk";
 
 app.post("/webhooks/paid", async (req, res) => {
   const isValid = await verifyWebhook(
@@ -172,7 +172,7 @@ idle → creating → awaiting_payment → sending → polling → completed
 
 ```ts
 // Framework-agnostic core
-import { PaidClient, verifyWebhook, parseWebhookPayload } from "@paid/sdk";
+import { PaidClient, verifyWebhook, parseWebhookPayload } from "@paidstudio/sdk";
 
 // React bindings
 import {
@@ -180,10 +180,10 @@ import {
   usePaidPayment,
   usePaidTokens,
   PaymentDrawer,
-} from "@paid/sdk/react";
+} from "@paidstudio/sdk/react";
 
 // Styles (required for PaymentDrawer)
-import "@paid/sdk/styles.css";
+import "@paidstudio/sdk/styles.css";
 ```
 
 ## License
