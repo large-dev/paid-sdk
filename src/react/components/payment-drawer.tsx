@@ -281,7 +281,6 @@ function DrawerHeader({ title, subtitle }: { title: string; subtitle?: string })
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <BoltIcon size="sm" color="white" />
-        <span style={{ fontSize: '1.125rem', color: '#fff', ...brand }}>PAID</span>
       </div>
       <div>
         <h2 style={{
