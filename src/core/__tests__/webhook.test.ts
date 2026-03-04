@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { verifyWebhook, parseWebhookPayload } from '../webhook'
-import type { WebhookPayload } from '../types'
 
 // ─── Helper: sign a payload the same way the server would ────────────────────
 
