@@ -12,9 +12,9 @@ export interface UsePaidTokensReturn {
   error: string | null
   /**
    * Fetch token balances for a wallet.
-   * Call this once you have the wallet address and session ID.
+   * Call this once you have the wallet address.
    */
-  fetchTokens: (sessionId: string, walletAddress: Address) => Promise<TokenInfo[]>
+  fetchTokens: (walletAddress: Address) => Promise<TokenInfo[]>
   /**
    * Filter tokens to only those that can cover a USD amount.
    * Returns tokens sorted by USD balance descending.
@@ -40,12 +40,12 @@ export function usePaidTokens(): UsePaidTokensReturn {
   const [error, setError] = useState<string | null>(null)
 
   const fetchTokens = useCallback(
-    async (sessionId: string, walletAddress: Address): Promise<TokenInfo[]> => {
+    async (walletAddress: Address): Promise<TokenInfo[]> => {
       setLoading(true)
       setError(null)
 
       try {
-        const raw = await client.getWalletTokens(sessionId, walletAddress)
+        const raw = await client.getWalletTokens(walletAddress)
 
         // Normalize — server might return different shapes
         const data: TokenInfo[] = Array.isArray(raw)

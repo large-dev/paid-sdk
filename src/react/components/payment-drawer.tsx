@@ -401,7 +401,6 @@ export function PaymentDrawer({
   const [tokensLoading, setTokensLoading] = useState(false)
   const [tokenPage, setTokenPage] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [depositAddress, setDepositAddress] = useState<string | null>(null)
   const [depositState, setDepositState] = useState<'idle' | 'creating' | 'awaiting' | 'sending' | 'polling' | 'completed' | 'bounced' | 'expired' | 'error'>('idle')
   const [statusData, setStatusData] = useState<SessionStatusResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -431,7 +430,7 @@ export function PaymentDrawer({
       setTokensLoading(false)
       setTokenPage(0)
       setSessionId(null)
-      setDepositAddress(null)
+
       setDepositState('idle')
       setStatusData(null)
       setError(null)
@@ -573,7 +572,7 @@ export function PaymentDrawer({
         inputToken: token.tokenAddress as `0x${string}`,
       })
       setSessionId(session.sessionId)
-      setDepositAddress(session.depositAddress)
+
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to create session'
       setError(msg)
