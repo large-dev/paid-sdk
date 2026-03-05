@@ -108,11 +108,9 @@ export class PaidClient {
    * Returns tokens with non-zero balances, sorted by USD value.
    */
   async getWalletTokens(
-    sessionId: string,
     walletAddress: Address,
   ): Promise<TokenInfo[]> {
     const qs = new URLSearchParams({
-      sessionId,
       walletAddress,
     })
     return this.request<TokenInfo[]>(

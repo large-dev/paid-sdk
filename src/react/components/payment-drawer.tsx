@@ -451,47 +451,17 @@ export function PaymentDrawer({
     }
   }, [])
 
-  // ─── Auto-start session when drawer opens ──────────────────────────
+  // ─── Fetch tokens when drawer opens ─────────────────────────────
 
   useEffect(() => {
-    if (!open || depositState !== 'idle') return
-
-    const createSession = async () => {
-      setDepositState('creating')
-      try {
-        const session = await client.createSession({
-          recipient,
-          refundAddress: refundAddress ?? recipient,
-          amountUsd,
-          metadata,
-          calldata,
-          destinationContract,
-        })
-        setSessionId(session.sessionId)
-        setDepositAddress(session.depositAddress)
-        setDepositState('awaiting')
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to create session'
-        setError(msg)
-        setDepositState('error')
-        onError?.(msg)
-      }
-    }
-
-    createSession()
-  }, [open, depositState, client, recipient, refundAddress, amountUsd, metadata, onError])
-
-  // ─── Fetch tokens once session is ready ────────────────────────────
-
-  useEffect(() => {
-    if (depositState !== 'awaiting' || !sessionId || !walletAddress) return
-    if (tokens.length > 0) return
+    if (!open || depositState !== 'idle' || !walletAddress) return
 
     const fetchTokens = async () => {
+      setDepositState('awaiting')
       try {
         setTokenError(null)
         setTokensLoading(true)
-        const raw = await client.getWalletTokens(sessionId, walletAddress)
+        const raw = await client.getWalletTokens(walletAddress)
 
         const data: TokenInfo[] = Array.isArray(raw)
           ? raw
@@ -530,7 +500,7 @@ export function PaymentDrawer({
     }
 
     fetchTokens()
-  }, [depositState, sessionId, walletAddress, tokens.length, amountUsd, client])
+  }, [open, depositState, walletAddress, amountUsd, client])
 
   // ─── Status polling ────────────────────────────────────────────────
 
@@ -584,10 +554,35 @@ export function PaymentDrawer({
   // ─── Payment handler ───────────────────────────────────────────────
 
   const handlePay = useCallback(async (token: TokenInfo) => {
-    if (!onSendTransaction || !depositAddress) return
+    if (!onSendTransaction) return
 
     setSelectedToken(token)
     setView('confirming')
+    setDepositState('creating')
+
+    // Create session with the correct inputToken
+    let session: { sessionId: string; depositAddress: string }
+    try {
+      session = await client.createSession({
+        recipient,
+        refundAddress: refundAddress ?? recipient,
+        amountUsd,
+        metadata,
+        calldata,
+        destinationContract,
+        inputToken: token.tokenAddress as `0x${string}`,
+      })
+      setSessionId(session.sessionId)
+      setDepositAddress(session.depositAddress)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create session'
+      setError(msg)
+      setDepositState('error')
+      setView('result')
+      onError?.(msg)
+      return
+    }
+
     setDepositState('sending')
 
     const isNative = token.tokenAddress.toLowerCase() === NATIVE_TOKEN
@@ -603,14 +598,12 @@ export function PaymentDrawer({
       await onSendTransaction({
         token,
         amount,
-        depositAddress,
+        depositAddress: session.depositAddress,
         isNative,
       })
 
       setDepositState('polling')
-      if (sessionId) {
-        startPolling(sessionId, 1000)
-      }
+      startPolling(session.sessionId, 1000)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Transaction failed'
 
@@ -627,7 +620,7 @@ export function PaymentDrawer({
       setView('result')
       onError?.(msg)
     }
-  }, [onSendTransaction, depositAddress, amountUsd, sessionId, startPolling, onError])
+  }, [onSendTransaction, client, recipient, refundAddress, amountUsd, metadata, calldata, destinationContract, startPolling, onError])
 
   // ─── Retry handler ────────────────────────────────────────────────
 

@@ -205,11 +205,11 @@ describe('PaidClient', () => {
       ]
       mockFetch.mockReturnValueOnce(jsonResponse({ data: tokens }))
 
-      const result = await client.getWalletTokens('sess_123', '0xwallet' as `0x${string}`)
+      const result = await client.getWalletTokens('0xwallet' as `0x${string}`)
 
       expect(result).toEqual(tokens)
       const url = mockFetch.mock.calls[0][0]
-      expect(url).toContain('sessionId=sess_123')
+      expect(url).not.toContain('sessionId')
       expect(url).toContain('walletAddress=0xwallet')
     })
   })

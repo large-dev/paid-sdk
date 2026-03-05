@@ -39,8 +39,8 @@ export interface UsePaidPaymentReturn {
   error: string | null
   /** Start a payment flow. Creates a session and fetches tokens. */
   start: (request: PaymentRequest) => Promise<void>
-  /** Select a token and prepare for sending. Does NOT send the tx — the integrator handles that. */
-  selectToken: (token: TokenInfo) => void
+  /** Select a token and create a session. Does NOT send the tx — the integrator handles that. */
+  selectToken: (token: TokenInfo) => Promise<void>
   /**
    * Notify the SDK that a transaction was submitted.
    * Call this after your app sends the on-chain tx (via wagmi, ethers, etc.).
@@ -187,13 +187,49 @@ export function usePaidPayment(
 
   // ─── Actions ────────────────────────────────────────────────────────
 
+  // Store the payment request so selectToken can use it to create the session
+  const requestRef = useRef<PaymentRequest | null>(null)
+
   const start = useCallback(
     async (request: PaymentRequest) => {
       dispatch({ type: 'RESET' })
+      requestRef.current = request
+
+      // Go straight to awaiting_payment — no session yet.
+      // We fake a SESSION_CREATED with empty ids so the state advances.
+      // The real session is created in selectToken() with the correct inputToken.
       dispatch({ type: 'CREATE_SESSION' })
 
       try {
-        const session = await client.createSession(request)
+        // Fetch wallet tokens if a wallet address is available
+        // (tokens are loaded separately by the integrator via TOKENS_LOADED)
+        // Transition to awaiting_payment so the integrator can show token picker
+        dispatch({
+          type: 'SESSION_CREATED',
+          session: { sessionId: '', depositAddress: '' as `0x${string}`, expiresAt: 0 },
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to start payment'
+        dispatch({ type: 'ERROR', error: msg })
+        optionsRef.current.onError?.(msg)
+      }
+    },
+    [],
+  )
+
+  const selectToken = useCallback(
+    async (token: TokenInfo) => {
+      const request = requestRef.current
+      if (!request) return
+
+      dispatch({ type: 'TOKEN_SELECTED', token })
+
+      try {
+        // Create the session with the correct inputToken
+        const session = await client.createSession({
+          ...request,
+          inputToken: token.tokenAddress as `0x${string}`,
+        })
         dispatch({ type: 'SESSION_CREATED', session })
 
         // Start expiry check
@@ -201,9 +237,6 @@ export function usePaidPayment(
 
         // Start slow polling (status might update if user pays outside the drawer)
         startPolling(session.sessionId, POLL_INTERVAL_IDLE)
-
-        // Fetch wallet tokens (needs wallet address from the integrator)
-        // Tokens are fetched separately since we don't own wallet connection
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to create session'
         dispatch({ type: 'ERROR', error: msg })
@@ -212,10 +245,6 @@ export function usePaidPayment(
     },
     [client, startExpiryCheck, startPolling],
   )
-
-  const selectToken = useCallback((token: TokenInfo) => {
-    dispatch({ type: 'TOKEN_SELECTED', token })
-  }, [])
 
   const notifyTxSent = useCallback(
     (txHash: string) => {
