@@ -94,10 +94,10 @@ export interface SupportedToken {
 
 export type PaymentState =
   | 'idle'
-  | 'creating'         // calling POST /v1/deposit
-  | 'awaiting_payment'  // session created, waiting for user to pick token
-  | 'sending'           // user confirmed, tx being sent
-  | 'polling'           // tx sent, polling for completion
+  | 'loading_tokens'      // fetching wallet token balances
+  | 'awaiting_selection'  // tokens loaded, waiting for user to pick
+  | 'confirming'          // creating session + sending tx (wallet prompt)
+  | 'polling'             // tx sent, polling for completion
   | 'completed'
   | 'bounced'
   | 'expired'

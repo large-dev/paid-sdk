@@ -17,7 +17,7 @@ export default defineConfig([
     format: ['esm'],
     dts: true,
     sourcemap: true,
-    external: ['react', 'react-dom', 'viem', '@wagmi/core', 'framer-motion'],
+    external: ['react', 'react-dom', 'viem', 'wagmi', '@wagmi/core', 'framer-motion'],
     banner: { js: '"use client";' },
     onSuccess: () => {
       copyFileSync('src/react/styles/paid.css', 'dist/styles.css')

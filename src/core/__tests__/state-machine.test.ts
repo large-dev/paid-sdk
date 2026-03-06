@@ -89,7 +89,6 @@ describe('initialContext', () => {
   it('returns idle state with all fields null/empty', () => {
     const ctx = initialContext()
     expect(ctx.state).toBe('idle')
-    expect(ctx.request).toBeNull()
     expect(ctx.sessionId).toBeNull()
     expect(ctx.depositAddress).toBeNull()
     expect(ctx.expiresAt).toBeNull()
@@ -103,45 +102,39 @@ describe('initialContext', () => {
 })
 
 describe('paymentReducer', () => {
-  describe('CREATE_SESSION', () => {
-    it('transitions idle → creating', () => {
+  describe('START', () => {
+    it('transitions idle → loading_tokens', () => {
       const ctx = initialContext()
-      const next = paymentReducer(ctx, { type: 'CREATE_SESSION' })
-      expect(next.state).toBe('creating')
-      expect(next.error).toBeNull()
+      const next = paymentReducer(ctx, { type: 'START' })
+      expect(next.state).toBe('loading_tokens')
     })
 
-    it('clears previous error', () => {
-      const ctx: PaymentContext = { ...initialContext(), state: 'error', error: 'something broke' }
-      const next = paymentReducer(ctx, { type: 'CREATE_SESSION' })
-      expect(next.state).toBe('creating')
+    it('resets all state when starting fresh', () => {
+      const ctx: PaymentContext = {
+        ...initialContext(),
+        state: 'error',
+        error: 'old error',
+        sessionId: 'old_sess',
+      }
+      const next = paymentReducer(ctx, { type: 'START' })
+      expect(next.state).toBe('loading_tokens')
       expect(next.error).toBeNull()
-    })
-  })
-
-  describe('SESSION_CREATED', () => {
-    it('transitions creating → awaiting_payment with session data', () => {
-      const ctx: PaymentContext = { ...initialContext(), state: 'creating' }
-      const next = paymentReducer(ctx, { type: 'SESSION_CREATED', session: mockSession })
-      expect(next.state).toBe('awaiting_payment')
-      expect(next.sessionId).toBe('sess_123')
-      expect(next.depositAddress).toBe(mockSession.depositAddress)
-      expect(next.expiresAt).toBe(mockSession.expiresAt)
+      expect(next.sessionId).toBeNull()
     })
   })
 
   describe('TOKENS_LOADED', () => {
-    it('sets tokens without changing state', () => {
-      const ctx: PaymentContext = { ...initialContext(), state: 'awaiting_payment' }
+    it('transitions loading_tokens → awaiting_selection with tokens', () => {
+      const ctx: PaymentContext = { ...initialContext(), state: 'loading_tokens' }
       const next = paymentReducer(ctx, { type: 'TOKENS_LOADED', tokens: [mockToken] })
-      expect(next.state).toBe('awaiting_payment')
+      expect(next.state).toBe('awaiting_selection')
       expect(next.tokens).toEqual([mockToken])
     })
 
     it('replaces existing tokens', () => {
       const ctx: PaymentContext = {
         ...initialContext(),
-        state: 'awaiting_payment',
+        state: 'loading_tokens',
         tokens: [mockToken],
       }
       const newToken = { ...mockToken, symbol: 'ETH' }
@@ -150,25 +143,41 @@ describe('paymentReducer', () => {
     })
   })
 
-  describe('TOKEN_SELECTED', () => {
-    it('transitions awaiting_payment → sending with selected token', () => {
+  describe('PAY', () => {
+    it('transitions awaiting_selection → confirming with selected token', () => {
       const ctx: PaymentContext = {
         ...initialContext(),
-        state: 'awaiting_payment',
+        state: 'awaiting_selection',
         tokens: [mockToken],
       }
-      const next = paymentReducer(ctx, { type: 'TOKEN_SELECTED', token: mockToken })
-      expect(next.state).toBe('sending')
+      const next = paymentReducer(ctx, { type: 'PAY', token: mockToken })
+      expect(next.state).toBe('confirming')
       expect(next.selectedToken).toBe(mockToken)
     })
   })
 
-  describe('TX_SUBMITTED', () => {
-    it('transitions sending → polling with txHash', () => {
+  describe('SESSION_CREATED', () => {
+    it('stores session data without changing state', () => {
       const ctx: PaymentContext = {
         ...initialContext(),
-        state: 'sending',
+        state: 'confirming',
         selectedToken: mockToken,
+      }
+      const next = paymentReducer(ctx, { type: 'SESSION_CREATED', session: mockSession })
+      expect(next.state).toBe('confirming')
+      expect(next.sessionId).toBe('sess_123')
+      expect(next.depositAddress).toBe(mockSession.depositAddress)
+      expect(next.expiresAt).toBe(mockSession.expiresAt)
+    })
+  })
+
+  describe('TX_SUBMITTED', () => {
+    it('transitions confirming → polling with txHash', () => {
+      const ctx: PaymentContext = {
+        ...initialContext(),
+        state: 'confirming',
+        selectedToken: mockToken,
+        sessionId: 'sess_123',
       }
       const next = paymentReducer(ctx, { type: 'TX_SUBMITTED', txHash: '0xabc123' })
       expect(next.state).toBe('polling')
@@ -238,16 +247,16 @@ describe('paymentReducer', () => {
     })
 
     it('handles pending status — stays in current state', () => {
-      const ctx: PaymentContext = { ...initialContext(), state: 'awaiting_payment' }
+      const ctx: PaymentContext = { ...initialContext(), state: 'awaiting_selection' }
       const next = paymentReducer(ctx, { type: 'STATUS_UPDATE', status: mockStatusPending })
-      expect(next.state).toBe('awaiting_payment')
+      expect(next.state).toBe('awaiting_selection')
       expect(next.statusData).toBe(mockStatusPending)
     })
   })
 
   describe('EXPIRED', () => {
     it('transitions to expired state', () => {
-      const ctx: PaymentContext = { ...initialContext(), state: 'awaiting_payment' }
+      const ctx: PaymentContext = { ...initialContext(), state: 'awaiting_selection' }
       const next = paymentReducer(ctx, { type: 'EXPIRED' })
       expect(next.state).toBe('expired')
     })
@@ -261,14 +270,14 @@ describe('paymentReducer', () => {
 
   describe('ERROR', () => {
     it('transitions to error with message', () => {
-      const ctx: PaymentContext = { ...initialContext(), state: 'creating' }
+      const ctx: PaymentContext = { ...initialContext(), state: 'confirming' }
       const next = paymentReducer(ctx, { type: 'ERROR', error: 'Network failure' })
       expect(next.state).toBe('error')
       expect(next.error).toBe('Network failure')
     })
 
     it('can error from any state', () => {
-      const states = ['idle', 'creating', 'awaiting_payment', 'sending', 'polling'] as const
+      const states = ['idle', 'loading_tokens', 'awaiting_selection', 'confirming', 'polling'] as const
       for (const state of states) {
         const ctx: PaymentContext = { ...initialContext(), state }
         const next = paymentReducer(ctx, { type: 'ERROR', error: 'fail' })
@@ -301,21 +310,22 @@ describe('paymentReducer', () => {
 })
 
 describe('full payment flow', () => {
-  it('idle → creating → awaiting_payment → sending → polling → completed', () => {
+  it('idle → loading_tokens → awaiting_selection → confirming → polling → completed', () => {
     let ctx = initialContext()
 
-    ctx = paymentReducer(ctx, { type: 'CREATE_SESSION' })
-    expect(ctx.state).toBe('creating')
-
-    ctx = paymentReducer(ctx, { type: 'SESSION_CREATED', session: mockSession })
-    expect(ctx.state).toBe('awaiting_payment')
+    ctx = paymentReducer(ctx, { type: 'START' })
+    expect(ctx.state).toBe('loading_tokens')
 
     ctx = paymentReducer(ctx, { type: 'TOKENS_LOADED', tokens: [mockToken] })
-    expect(ctx.state).toBe('awaiting_payment')
+    expect(ctx.state).toBe('awaiting_selection')
     expect(ctx.tokens).toHaveLength(1)
 
-    ctx = paymentReducer(ctx, { type: 'TOKEN_SELECTED', token: mockToken })
-    expect(ctx.state).toBe('sending')
+    ctx = paymentReducer(ctx, { type: 'PAY', token: mockToken })
+    expect(ctx.state).toBe('confirming')
+
+    ctx = paymentReducer(ctx, { type: 'SESSION_CREATED', session: mockSession })
+    expect(ctx.state).toBe('confirming')
+    expect(ctx.sessionId).toBe('sess_123')
 
     ctx = paymentReducer(ctx, { type: 'TX_SUBMITTED', txHash: '0xabc123' })
     expect(ctx.state).toBe('polling')
@@ -341,9 +351,9 @@ describe('isTerminal', () => {
 
   it('returns false for non-terminal states', () => {
     expect(isTerminal('idle')).toBe(false)
-    expect(isTerminal('creating')).toBe(false)
-    expect(isTerminal('awaiting_payment')).toBe(false)
-    expect(isTerminal('sending')).toBe(false)
+    expect(isTerminal('loading_tokens')).toBe(false)
+    expect(isTerminal('awaiting_selection')).toBe(false)
+    expect(isTerminal('confirming')).toBe(false)
     expect(isTerminal('polling')).toBe(false)
   })
 })
