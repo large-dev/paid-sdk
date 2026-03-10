@@ -11,6 +11,7 @@ import type {
   PaymentReceipt,
   PaymentState,
   CreateSessionResponse,
+  FeeConfig,
   Address,
   Hex,
 } from '../../core/types'
@@ -78,6 +79,8 @@ export interface UsePaidPaymentReturn {
   sessionId: string | null
   /** Full status data from the server. */
   statusData: ReturnType<typeof initialContext>['statusData']
+  /** Fee configuration from the tenant. */
+  feeConfig: FeeConfig | null
   /** Start the payment flow — fetches tokens for the connected wallet. */
   start: () => Promise<void>
   /** Select a token and execute the full pay flow (create session → send tx → poll). */
@@ -134,6 +137,9 @@ export function usePaidPayment(
   optionsRef.current = options
   const ctxRef = useRef(ctx)
   ctxRef.current = ctx
+
+  // Fee config ref
+  const feeConfigRef = useRef<FeeConfig | null>(null)
 
   // Polling refs
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -259,7 +265,12 @@ export function usePaidPayment(
     dispatch({ type: 'START' })
 
     try {
-      const raw = await client.getWalletTokens(address)
+      const [raw, feeConfig] = await Promise.all([
+        client.getWalletTokens(address),
+        client.getConfig(),
+      ])
+      feeConfigRef.current = feeConfig
+
       const data: TokenInfo[] = Array.isArray(raw)
         ? raw
         : Array.isArray((raw as Record<string, unknown>)?.tokens)
@@ -275,7 +286,9 @@ export function usePaidPayment(
       if (amountUsd != null) {
         sorted = sorted.filter((t) => {
           if (t.rateUsdPerUnit <= 0) return false
-          const sendAmount = PaidClient.computePayAmount(amountUsd, t)
+          const sendAmount = feeConfig
+            ? PaidClient.computePayAmountWithFee(amountUsd, t, feeConfig)
+            : PaidClient.computePayAmount(amountUsd, t)
           return parseFloat(t.balanceUnits) >= parseFloat(sendAmount)
         })
       }
@@ -321,7 +334,9 @@ export function usePaidPayment(
       const isNative = token.tokenAddress.toLowerCase() === NATIVE_TOKEN
       let amount: string
       if (opts.amountUsd != null) {
-        amount = PaidClient.computePayAmount(opts.amountUsd, token)
+        amount = feeConfigRef.current
+          ? PaidClient.computePayAmountWithFee(opts.amountUsd, token, feeConfigRef.current)
+          : PaidClient.computePayAmount(opts.amountUsd, token)
       } else if (opts.amountRaw != null) {
         amount = opts.amountRaw
       } else {
@@ -371,6 +386,7 @@ export function usePaidPayment(
     error: ctx.error,
     sessionId: ctx.sessionId,
     statusData: ctx.statusData,
+    feeConfig: feeConfigRef.current,
     start,
     pay,
     reset,

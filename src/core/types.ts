@@ -47,6 +47,7 @@ export interface SessionStatusResponse {
   status: DepositStatus
   depositAddress: string
   expiresAt: number
+  fee?: { amount: string; bps: number }
   source?: {
     txHash: string | null
     chainId: number
@@ -62,6 +63,13 @@ export interface SessionStatusResponse {
     tokenSymbol: string
     amountUnits: string | null
   }
+}
+
+// ─── Fee Config ──────────────────────────────────────────────────────────
+
+export interface FeeConfig {
+  feeBps: number
+  feeFlatUsd: number
 }
 
 // ─── Tokens ───────────────────────────────────────────────────────────────

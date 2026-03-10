@@ -20,6 +20,7 @@ export type {
   PaymentState,
   PaymentReceipt,
   TokenInfo,
+  FeeConfig,
   SessionStatusResponse,
   PaidConfig,
   Address,

@@ -536,7 +536,9 @@ export function PaidCheckout({
               animate="animate"
             >
               {pageTokens.map((token, index) => {
-                const tokenCost = amountUsd != null ? PaidClient.computePayAmount(amountUsd, token) : null
+                const tokenCost = amountUsd != null && payment.feeConfig
+                  ? PaidClient.computePayAmountWithFee(amountUsd, token, payment.feeConfig)
+                  : (amountUsd != null ? PaidClient.computePayAmount(amountUsd, token) : null)
                 return (
                   <M
                     tag="button"
