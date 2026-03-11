@@ -5,6 +5,7 @@ import type {
   SessionStatusResponse,
   SupportedToken,
   TokenInfo,
+  FeeConfig,
   Address,
   PaymentRequest,
 } from './types'
@@ -29,6 +30,7 @@ export class PaidClient {
   private baseUrl: string
   private publicKey: string
   private chainId: number
+  private feeConfigCache: FeeConfig | null = null
 
   constructor(config: PaidConfig) {
     this.publicKey = config.publicKey
@@ -108,17 +110,24 @@ export class PaidClient {
    * Returns tokens with non-zero balances, sorted by USD value.
    */
   async getWalletTokens(
-    sessionId: string,
     walletAddress: Address,
   ): Promise<TokenInfo[]> {
     const qs = new URLSearchParams({
-      sessionId,
       walletAddress,
     })
     return this.request<TokenInfo[]>(
       'GET',
       `/v1/deposit/tokens?${qs.toString()}`,
     )
+  }
+
+  /**
+   * Fetch tenant fee configuration (cached after first call).
+   */
+  async getConfig(): Promise<FeeConfig> {
+    if (this.feeConfigCache) return this.feeConfigCache
+    this.feeConfigCache = await this.request<FeeConfig>('GET', '/v1/deposit/config')
+    return this.feeConfigCache
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────
@@ -130,10 +139,11 @@ export class PaidClient {
   private toDepositParams(payment: PaymentRequest): CreateDepositParams {
     return {
       destination: {
-        destinationAddress: payment.recipient,
+        destinationAddress: payment.destinationContract ?? payment.recipient,
         chainId: this.chainId,
         tokenAddress: payment.inputToken ?? USDC_BASE,
         units: payment.amountRaw,
+        calldata: payment.calldata,
       },
       refundAddress: payment.refundAddress ?? payment.recipient,
       metadata: payment.metadata,
@@ -145,6 +155,12 @@ export class PaidClient {
     if (token.rateUsdPerUnit <= 0) return '0'
     const amount = targetUsd / token.rateUsdPerUnit
     return amount.toFixed(Math.min(token.decimals, 8)).replace(/\.?0+$/, '')
+  }
+
+  /** Compute how much of a token is needed to cover a USD amount plus fees. */
+  static computePayAmountWithFee(targetUsd: number, token: TokenInfo, fee: FeeConfig): string {
+    const totalUsd = targetUsd + (targetUsd * fee.feeBps / 10000) + fee.feeFlatUsd
+    return PaidClient.computePayAmount(totalUsd, token)
   }
 
   /** Check if a token address is native ETH (zero address). */

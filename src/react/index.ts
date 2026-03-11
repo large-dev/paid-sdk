@@ -7,15 +7,11 @@ export {
   usePaidPayment,
   type UsePaidPaymentReturn,
   type UsePaidPaymentOptions,
+  type SendTransactionParams,
 } from './hooks/use-paid-payment'
 
-export {
-  usePaidTokens,
-  type UsePaidTokensReturn,
-} from './hooks/use-paid-tokens'
-
 // ─── Components ───────────────────────────────────────────────────────────
-export { PaymentDrawer, type PaymentDrawerProps } from './components/payment-drawer'
+export { PaidCheckout, type PaidCheckoutProps } from './components/paid-checkout'
 export { BoltIcon, type BoltIconProps } from './components/bolt-icon'
 
 // ─── Re-export core types for convenience ─────────────────────────────────
@@ -24,7 +20,9 @@ export type {
   PaymentState,
   PaymentReceipt,
   TokenInfo,
+  FeeConfig,
   SessionStatusResponse,
   PaidConfig,
   Address,
+  Hex,
 } from '../core/types'

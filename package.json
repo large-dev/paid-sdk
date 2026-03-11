@@ -1,9 +1,9 @@
 {
-  "name": "@paid/sdk",
-  "version": "0.1.0",
+  "name": "@paidstudio/sdk",
+  "version": "0.3.0",
   "type": "module",
   "private": false,
-  "description": "Drop-in crypto payment drawer for any React app. Powered by PAID.",
+  "description": "Drop-in crypto payment checkout for any React app. Powered by PAID.",
   "license": "MIT",
   "exports": {
     ".": {
@@ -18,23 +18,34 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18",
     "viem": ">=2.0.0",
+    "wagmi": ">=2.0.0",
     "@wagmi/core": ">=2.0.0",
     "framer-motion": ">=10.0.0"
   },
   "peerDependenciesMeta": {
     "framer-motion": {
+      "optional": true
+    },
+    "wagmi": {
+      "optional": true
+    },
+    "@wagmi/core": {
       "optional": true
     }
   },
@@ -46,7 +57,9 @@
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
     "viem": "^2.23.0",
+    "wagmi": "^2.14.0",
     "@wagmi/core": "^2.16.0",
-    "framer-motion": "^11.0.0"
+    "framer-motion": "^11.0.0",
+    "vitest": "^3.0.0"
   }
 }

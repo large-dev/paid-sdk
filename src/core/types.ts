@@ -19,6 +19,10 @@ export interface PaymentRequest {
   inputToken?: Address
   /** Arbitrary metadata attached to the session (e.g. orderId). */
   metadata?: Record<string, string>
+  /** Optional calldata to execute on the destination contract after swap. */
+  calldata?: Hex
+  /** Contract address to receive the sweep (used with calldata). Overrides `recipient` as destination. */
+  destinationContract?: Address
 }
 
 // ─── Deposit Session ──────────────────────────────────────────────────────
@@ -43,6 +47,7 @@ export interface SessionStatusResponse {
   status: DepositStatus
   depositAddress: string
   expiresAt: number
+  fee?: { amount: string; bps: number }
   source?: {
     txHash: string | null
     chainId: number
@@ -60,6 +65,13 @@ export interface SessionStatusResponse {
   }
 }
 
+// ─── Fee Config ──────────────────────────────────────────────────────────
+
+export interface FeeConfig {
+  feeBps: number
+  feeFlatUsd: number
+}
+
 // ─── Tokens ───────────────────────────────────────────────────────────────
 
 export interface TokenInfo {
@@ -75,6 +87,8 @@ export interface TokenInfo {
   balanceUnits: string
   /** User's balance in USD. */
   balanceUsd: number
+  /** Optional URL for the token's logo image. Falls back to text abbreviation if omitted. */
+  logoUrl?: string
 }
 
 export interface SupportedToken {
@@ -88,10 +102,10 @@ export interface SupportedToken {
 
 export type PaymentState =
   | 'idle'
-  | 'creating'         // calling POST /v1/deposit
-  | 'awaiting_payment'  // session created, waiting for user to pick token
-  | 'sending'           // user confirmed, tx being sent
-  | 'polling'           // tx sent, polling for completion
+  | 'loading_tokens'      // fetching wallet token balances
+  | 'awaiting_selection'  // tokens loaded, waiting for user to pick
+  | 'confirming'          // creating session + sending tx (wallet prompt)
+  | 'polling'             // tx sent, polling for completion
   | 'completed'
   | 'bounced'
   | 'expired'
@@ -165,7 +179,7 @@ export const NATIVE_TOKEN: Address = '0x0000000000000000000000000000000000000000
 
 export const USDC_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 
-export const DEFAULT_BASE_URL = 'https://api.getpaid.dev'
+export const DEFAULT_BASE_URL = 'https://api.paid.studio'
 
 export const BOLT_CLIP_PATH =
   'polygon(20% 0%, 80% 0%, 100% 20%, 60% 40%, 90% 40%, 40% 100%, 50% 60%, 10% 60%, 30% 20%)'

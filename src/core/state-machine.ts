@@ -3,17 +3,16 @@ import type {
   PaymentReceipt,
   SessionStatusResponse,
   TokenInfo,
-  PaymentRequest,
   CreateSessionResponse,
 } from './types'
 
 // ─── Events ───────────────────────────────────────────────────────────────
 
 export type PaymentEvent =
-  | { type: 'CREATE_SESSION' }
-  | { type: 'SESSION_CREATED'; session: CreateSessionResponse }
+  | { type: 'START' }
   | { type: 'TOKENS_LOADED'; tokens: TokenInfo[] }
-  | { type: 'TOKEN_SELECTED'; token: TokenInfo }
+  | { type: 'PAY'; token: TokenInfo }
+  | { type: 'SESSION_CREATED'; session: CreateSessionResponse }
   | { type: 'TX_SUBMITTED'; txHash: string }
   | { type: 'STATUS_UPDATE'; status: SessionStatusResponse }
   | { type: 'EXPIRED' }
@@ -24,7 +23,6 @@ export type PaymentEvent =
 
 export interface PaymentContext {
   state: PaymentState
-  request: PaymentRequest | null
   sessionId: string | null
   depositAddress: string | null
   expiresAt: number | null // unix seconds
@@ -39,7 +37,6 @@ export interface PaymentContext {
 export function initialContext(): PaymentContext {
   return {
     state: 'idle',
-    request: null,
     sessionId: null,
     depositAddress: null,
     expiresAt: null,
@@ -64,33 +61,33 @@ export function paymentReducer(
   event: PaymentEvent,
 ): PaymentContext {
   switch (event.type) {
-    case 'CREATE_SESSION':
+    case 'START':
       return {
-        ...ctx,
-        state: 'creating',
-        error: null,
-      }
-
-    case 'SESSION_CREATED':
-      return {
-        ...ctx,
-        state: 'awaiting_payment',
-        sessionId: event.session.sessionId,
-        depositAddress: event.session.depositAddress,
-        expiresAt: event.session.expiresAt,
+        ...initialContext(),
+        state: 'loading_tokens',
       }
 
     case 'TOKENS_LOADED':
       return {
         ...ctx,
+        state: 'awaiting_selection',
         tokens: event.tokens,
       }
 
-    case 'TOKEN_SELECTED':
+    case 'PAY':
       return {
         ...ctx,
-        state: 'sending',
+        state: 'confirming',
         selectedToken: event.token,
+      }
+
+    case 'SESSION_CREATED':
+      // Data-only update — stay in confirming
+      return {
+        ...ctx,
+        sessionId: event.session.sessionId,
+        depositAddress: event.session.depositAddress,
+        expiresAt: event.session.expiresAt,
       }
 
     case 'TX_SUBMITTED':

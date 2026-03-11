@@ -1,57 +1,53 @@
 import { useCallback, useEffect, useRef, useReducer } from 'react'
+import { useAccount, useSendTransaction } from 'wagmi'
+import { parseEther, encodeFunctionData, erc20Abi } from 'viem'
 import {
   paymentReducer,
   initialContext,
-  type PaymentContext,
 } from '../../core/state-machine'
+import { PaidClient } from '../../core/client'
 import type {
-  PaymentRequest,
   TokenInfo,
   PaymentReceipt,
   PaymentState,
+  CreateSessionResponse,
+  FeeConfig,
+  Address,
+  Hex,
 } from '../../core/types'
+import { NATIVE_TOKEN } from '../../core/types'
 import { usePaidContext } from '../context'
 
 // ─── Polling config ───────────────────────────────────────────────────────
 
-const POLL_INTERVAL_IDLE = 3000
-const POLL_INTERVAL_ACTIVE = 1000
+const POLL_INTERVAL = 1000
 const EXPIRY_CHECK_INTERVAL = 1000
 
-// ─── Hook Return ──────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────
 
-export interface UsePaidPaymentReturn {
-  /** Current state of the payment lifecycle. */
-  state: PaymentState
-  /** Session ID once created. */
-  sessionId: string | null
-  /** Deposit address for the session. */
-  depositAddress: string | null
-  /** Available tokens the user can pay with. */
-  tokens: TokenInfo[]
-  /** The token the user selected (or was auto-selected). */
-  selectedToken: TokenInfo | null
-  /** Full status data from the server. */
-  statusData: PaymentContext['statusData']
-  /** Receipt available after completion or bounce. */
-  receipt: PaymentReceipt | null
-  /** Error message if state is 'error'. */
-  error: string | null
-  /** Start a payment flow. Creates a session and fetches tokens. */
-  start: (request: PaymentRequest) => Promise<void>
-  /** Select a token and prepare for sending. Does NOT send the tx — the integrator handles that. */
-  selectToken: (token: TokenInfo) => void
-  /**
-   * Notify the SDK that a transaction was submitted.
-   * Call this after your app sends the on-chain tx (via wagmi, ethers, etc.).
-   * The SDK will start polling for completion.
-   */
-  notifyTxSent: (txHash: string) => void
-  /** Reset to idle state. */
-  reset: () => void
+/** Parameters passed to a custom sendTransaction override. */
+export interface SendTransactionParams {
+  token: TokenInfo
+  amount: string
+  depositAddress: string
+  isNative: boolean
 }
 
 export interface UsePaidPaymentOptions {
+  /** Recipient wallet address (where funds land after swap). */
+  recipient: Address
+  /** USD amount to charge. The SDK handles token conversion. */
+  amountUsd?: number
+  /** Raw token amount (wei string). Use instead of amountUsd for exact amounts. */
+  amountRaw?: string
+  /** Address to refund if the session expires unused. */
+  refundAddress?: Address
+  /** Arbitrary metadata attached to the session. */
+  metadata?: Record<string, string>
+  /** Optional calldata to execute on the destination contract after swap. */
+  calldata?: Hex
+  /** Contract address to receive the sweep (used with calldata). */
+  destinationContract?: Address
   /** Called when the payment completes successfully. */
   onComplete?: (receipt: PaymentReceipt) => void
   /** Called when the payment bounces (fails on-chain). */
@@ -60,46 +56,92 @@ export interface UsePaidPaymentOptions {
   onExpired?: () => void
   /** Called on any error. */
   onError?: (error: string) => void
+  /**
+   * Override the default wagmi transaction sender.
+   * When provided, the hook uses this instead of wagmi's useSendTransaction.
+   * Useful for non-wagmi environments or custom wallet integrations.
+   */
+  sendTransaction?: (params: SendTransactionParams) => Promise<string>
 }
 
+export interface UsePaidPaymentReturn {
+  /** Current state of the payment lifecycle. */
+  state: PaymentState
+  /** Available tokens the user can pay with. */
+  tokens: TokenInfo[]
+  /** The token the user selected. */
+  selectedToken: TokenInfo | null
+  /** Receipt available after completion or bounce. */
+  receipt: PaymentReceipt | null
+  /** Error message if state is 'error'. */
+  error: string | null
+  /** Session ID once created. */
+  sessionId: string | null
+  /** Full status data from the server. */
+  statusData: ReturnType<typeof initialContext>['statusData']
+  /** Fee configuration from the tenant. */
+  feeConfig: FeeConfig | null
+  /** Start the payment flow — fetches tokens for the connected wallet. */
+  start: () => Promise<void>
+  /** Select a token and execute the full pay flow (create session → send tx → poll). */
+  pay: (token: TokenInfo) => Promise<void>
+  /** Reset to idle state. */
+  reset: () => void
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+/** Detect user wallet cancellation vs real errors. */
+function isUserCancellation(error: string): boolean {
+  const lower = error.toLowerCase()
+  return (
+    lower.includes('reject') ||
+    lower.includes('denied') ||
+    lower.includes('cancel') ||
+    lower.includes('user refused')
+  )
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────
+
 /**
- * Headless payment hook. Use this to build custom payment UI.
- *
- * The SDK handles: session creation, token fetching, status polling.
- * Your app handles: wallet connection, sending the transaction.
+ * Full-lifecycle payment hook. Owns state, tokens, tx sending, and polling.
  *
  * @example
  * ```tsx
  * const payment = usePaidPayment({
+ *   recipient: '0x...',
+ *   amountUsd: 25,
  *   onComplete: (receipt) => console.log('Paid!', receipt),
  * })
  *
- * // Start
- * await payment.start({ recipient: '0x...', amountUsd: 25 })
+ * // Start — fetches tokens for the connected wallet
+ * await payment.start()
  *
- * // User picks a token
- * payment.selectToken(payment.tokens[0])
- *
- * // Your app sends the tx (via wagmi, ethers, etc.)
- * const hash = await sendTransaction(...)
- * payment.notifyTxSent(hash)
- *
- * // SDK polls automatically → onComplete fires
+ * // User picks a token → creates session, sends tx, polls automatically
+ * await payment.pay(payment.tokens[0])
  * ```
  */
 export function usePaidPayment(
-  options: UsePaidPaymentOptions = {},
+  options: UsePaidPaymentOptions,
 ): UsePaidPaymentReturn {
   const { client } = usePaidContext()
   const [ctx, dispatch] = useReducer(paymentReducer, initialContext())
 
-  // Stable refs for callbacks
+  // Wagmi hooks
+  const { address } = useAccount()
+  const { sendTransactionAsync } = useSendTransaction()
+
+  // Stable refs for callbacks and options
   const optionsRef = useRef(options)
   optionsRef.current = options
   const ctxRef = useRef(ctx)
   ctxRef.current = ctx
 
-  // Polling ref
+  // Fee config ref
+  const feeConfigRef = useRef<FeeConfig | null>(null)
+
+  // Polling refs
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const expiryRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -121,7 +163,7 @@ export function usePaidPayment(
   // ─── Status polling ─────────────────────────────────────────────────
 
   const startPolling = useCallback(
-    (sessionId: string, interval: number) => {
+    (sessionId: string) => {
       stopPolling()
 
       const poll = async () => {
@@ -129,29 +171,26 @@ export function usePaidPayment(
           const status = await client.getStatus(sessionId)
           dispatch({ type: 'STATUS_UPDATE', status })
 
-          // Fire callbacks on terminal states
           if (status.status === 'completed' && ctxRef.current.state !== 'completed') {
             stopPolling()
-            const receipt: PaymentReceipt = {
+            optionsRef.current.onComplete?.(ctxRef.current.receipt ?? {
               sessionId: status.sessionId,
               status: 'completed',
               txHash: status.destination?.txHash ?? ctxRef.current.txHash,
               source: status.source,
               destination: status.destination,
               completedAt: new Date(),
-            }
-            optionsRef.current.onComplete?.(receipt)
+            })
           } else if (status.status === 'bounced' && ctxRef.current.state !== 'bounced') {
             stopPolling()
-            const receipt: PaymentReceipt = {
+            optionsRef.current.onBounced?.(ctxRef.current.receipt ?? {
               sessionId: status.sessionId,
               status: 'bounced',
               txHash: ctxRef.current.txHash,
               source: status.source,
               destination: status.destination,
               completedAt: new Date(),
-            }
-            optionsRef.current.onBounced?.(receipt)
+            })
           } else if (status.status === 'expired') {
             stopPolling()
             optionsRef.current.onExpired?.()
@@ -161,8 +200,7 @@ export function usePaidPayment(
         }
       }
 
-      pollRef.current = setInterval(poll, interval)
-      // Also poll immediately
+      pollRef.current = setInterval(poll, POLL_INTERVAL)
       poll()
     },
     [client, stopPolling],
@@ -185,47 +223,154 @@ export function usePaidPayment(
     [stopPolling],
   )
 
+  // ─── Default tx sender (wagmi) ──────────────────────────────────────
+
+  const defaultSendTransaction = useCallback(
+    async ({ token, amount, depositAddress, isNative }: SendTransactionParams): Promise<string> => {
+      if (isNative) {
+        const hash = await sendTransactionAsync({
+          to: depositAddress as Address,
+          value: parseEther(amount),
+        })
+        return hash
+      }
+
+      // ERC-20 transfer
+      const data = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [
+          depositAddress as Address,
+          BigInt(Math.round(parseFloat(amount) * 10 ** token.decimals)),
+        ],
+      })
+      const hash = await sendTransactionAsync({
+        to: token.tokenAddress as Address,
+        data,
+      })
+      return hash
+    },
+    [sendTransactionAsync],
+  )
+
   // ─── Actions ────────────────────────────────────────────────────────
 
-  const start = useCallback(
-    async (request: PaymentRequest) => {
-      dispatch({ type: 'RESET' })
-      dispatch({ type: 'CREATE_SESSION' })
+  const start = useCallback(async () => {
+    if (!address) {
+      optionsRef.current.onError?.('Wallet not connected')
+      dispatch({ type: 'ERROR', error: 'Wallet not connected' })
+      return
+    }
 
+    dispatch({ type: 'START' })
+
+    try {
+      const [raw, feeConfig] = await Promise.all([
+        client.getWalletTokens(address),
+        client.getConfig(),
+      ])
+      feeConfigRef.current = feeConfig
+
+      const data: TokenInfo[] = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as Record<string, unknown>)?.tokens)
+          ? (raw as unknown as { tokens: TokenInfo[] }).tokens
+          : []
+
+      let sorted = data
+        .filter((t) => parseFloat(t.balanceUnits) > 0)
+        .sort((a, b) => b.balanceUsd - a.balanceUsd)
+        .slice(0, 6)
+
+      const { amountUsd } = optionsRef.current
+      if (amountUsd != null) {
+        sorted = sorted.filter((t) => {
+          if (t.rateUsdPerUnit <= 0) return false
+          const sendAmount = feeConfig
+            ? PaidClient.computePayAmountWithFee(amountUsd, t, feeConfig)
+            : PaidClient.computePayAmount(amountUsd, t)
+          return parseFloat(t.balanceUnits) >= parseFloat(sendAmount)
+        })
+      }
+
+      dispatch({ type: 'TOKENS_LOADED', tokens: sorted })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch tokens'
+      dispatch({ type: 'ERROR', error: msg })
+      optionsRef.current.onError?.(msg)
+    }
+  }, [address, client])
+
+  const pay = useCallback(
+    async (token: TokenInfo) => {
+      const opts = optionsRef.current
+      dispatch({ type: 'PAY', token })
+
+      // 1. Create session
+      let session: CreateSessionResponse
       try {
-        const session = await client.createSession(request)
+        session = await client.createSession({
+          recipient: opts.recipient,
+          refundAddress: opts.refundAddress ?? opts.recipient,
+          amountUsd: opts.amountUsd,
+          amountRaw: opts.amountRaw,
+          metadata: opts.metadata,
+          calldata: opts.calldata,
+          destinationContract: opts.destinationContract,
+          inputToken: token.tokenAddress as Address,
+        })
         dispatch({ type: 'SESSION_CREATED', session })
-
-        // Start expiry check
-        startExpiryCheck(session.expiresAt)
-
-        // Start slow polling (status might update if user pays outside the drawer)
-        startPolling(session.sessionId, POLL_INTERVAL_IDLE)
-
-        // Fetch wallet tokens (needs wallet address from the integrator)
-        // Tokens are fetched separately since we don't own wallet connection
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to create session'
         dispatch({ type: 'ERROR', error: msg })
-        optionsRef.current.onError?.(msg)
+        opts.onError?.(msg)
+        return
+      }
+
+      // Start expiry check
+      startExpiryCheck(session.expiresAt)
+
+      // 2. Send transaction
+      const isNative = token.tokenAddress.toLowerCase() === NATIVE_TOKEN
+      let amount: string
+      if (opts.amountUsd != null) {
+        amount = feeConfigRef.current
+          ? PaidClient.computePayAmountWithFee(opts.amountUsd, token, feeConfigRef.current)
+          : PaidClient.computePayAmount(opts.amountUsd, token)
+      } else if (opts.amountRaw != null) {
+        amount = opts.amountRaw
+      } else {
+        amount = token.balanceUnits
+      }
+
+      const sendTx = opts.sendTransaction ?? defaultSendTransaction
+
+      try {
+        const txHash = await sendTx({
+          token,
+          amount,
+          depositAddress: session.depositAddress,
+          isNative,
+        })
+        dispatch({ type: 'TX_SUBMITTED', txHash })
+
+        // 3. Start polling
+        startPolling(session.sessionId)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Transaction failed'
+
+        // User cancellation → return to token selection
+        if (isUserCancellation(msg)) {
+          dispatch({ type: 'TOKENS_LOADED', tokens: ctxRef.current.tokens })
+          stopPolling()
+          return
+        }
+
+        dispatch({ type: 'ERROR', error: msg })
+        opts.onError?.(msg)
       }
     },
-    [client, startExpiryCheck, startPolling],
-  )
-
-  const selectToken = useCallback((token: TokenInfo) => {
-    dispatch({ type: 'TOKEN_SELECTED', token })
-  }, [])
-
-  const notifyTxSent = useCallback(
-    (txHash: string) => {
-      dispatch({ type: 'TX_SUBMITTED', txHash })
-      // Switch to fast polling
-      if (ctxRef.current.sessionId) {
-        startPolling(ctxRef.current.sessionId, POLL_INTERVAL_ACTIVE)
-      }
-    },
-    [startPolling],
+    [client, defaultSendTransaction, startPolling, startExpiryCheck, stopPolling],
   )
 
   const reset = useCallback(() => {
@@ -233,23 +378,17 @@ export function usePaidPayment(
     dispatch({ type: 'RESET' })
   }, [stopPolling])
 
-  // ─── Token loading (callable by integrator after wallet connects) ───
-
-  // We expose tokens on the context so the drawer can load them
-  // after it knows the wallet address.
-
   return {
     state: ctx.state,
-    sessionId: ctx.sessionId,
-    depositAddress: ctx.depositAddress,
     tokens: ctx.tokens,
     selectedToken: ctx.selectedToken,
-    statusData: ctx.statusData,
     receipt: ctx.receipt,
     error: ctx.error,
+    sessionId: ctx.sessionId,
+    statusData: ctx.statusData,
+    feeConfig: feeConfigRef.current,
     start,
-    selectToken,
-    notifyTxSent,
+    pay,
     reset,
   }
 }

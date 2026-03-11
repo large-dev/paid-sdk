@@ -21,6 +21,11 @@
   50% { opacity: 1; }
 }
 
+@keyframes paid-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
 /* Optional: apply to the drawer portal */
 [data-paid-drawer] {
   font-family: 'Courier New', Courier, monospace;

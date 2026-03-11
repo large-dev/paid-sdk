@@ -8,6 +8,7 @@ export type {
   SessionStatusResponse,
   TokenInfo,
   SupportedToken,
+  FeeConfig,
   PaymentState,
   PaymentReceipt,
   CreateDepositParams,
