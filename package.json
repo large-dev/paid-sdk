@@ -1,10 +1,14 @@
 {
   "name": "@paidstudio/sdk",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "private": false,
   "description": "Drop-in crypto payment checkout for any React app. Powered by PAID.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/large-dev/paid-sdk.git"
+  },
   "exports": {
     ".": {
       "import": "./dist/core/index.js",
