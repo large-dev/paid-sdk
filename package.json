@@ -1,6 +1,6 @@
 {
   "name": "@paidstudio/sdk",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "type": "module",
   "private": false,
   "description": "Drop-in crypto payment checkout for any React app. Powered by PAID.",

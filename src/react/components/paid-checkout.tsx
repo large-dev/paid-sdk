@@ -742,15 +742,11 @@ export function PaidCheckout({
 
             <M style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 8 }} variants={paidStagger} initial="initial" animate="animate">
               <M style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Token</span>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{srcSymbol}</span>
+                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Sent</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{srcAmount} {srcSymbol}</span>
               </M>
               <M style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Amount</span>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{srcAmount}</span>
-              </M>
-              <M style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Total</span>
+                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Value</span>
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{srcUsd}</span>
               </M>
               {showReceivedRow && (
@@ -761,6 +757,12 @@ export function PaidCheckout({
                   </span>
                 </M>
               )}
+              {metadata && Object.entries(metadata).map(([key, value]) => (
+                <M key={key} style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
+                  <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>{key}</span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{value}</span>
+                </M>
+              ))}
             </M>
 
             <div style={{ padding: '16px 20px' }}><div style={{ borderTop: `3px solid ${dividerColor}` }} /></div>
