@@ -1,6 +1,8 @@
 import {
   useState,
   useCallback,
+  useEffect,
+  useRef,
   cloneElement,
   isValidElement,
   type CSSProperties,
@@ -18,26 +20,6 @@ import type {
 import { usePaidPayment, type UsePaidPaymentOptions } from '../hooks/use-paid-payment'
 import { BoltIcon } from './bolt-icon'
 
-// ─── Optional framer-motion import ─────────────────────────────────────────
-
-type MotionType = typeof import('framer-motion').motion
-type AnimatePresenceType = typeof import('framer-motion').AnimatePresence
-
-let motion: MotionType | undefined
-let AnimatePresence: AnimatePresenceType | undefined
-
-try {
-  const _require = typeof globalThis !== 'undefined'
-    ? (globalThis as Record<string, unknown>).__require as ((id: string) => unknown) | undefined
-    : undefined
-  const resolve = _require ?? new Function('id', 'return require(id)') as (id: string) => unknown
-  const fm = resolve('framer-motion') as { motion: MotionType; AnimatePresence: AnimatePresenceType }
-  motion = fm.motion
-  AnimatePresence = fm.AnimatePresence
-} catch {
-  // framer-motion not installed — graceful fallback
-}
-
 // ─── Styles ────────────────────────────────────────────────────────────────
 
 const mono: CSSProperties = { fontFamily: "'Courier New', Courier, monospace" }
@@ -49,13 +31,6 @@ const CONTAINER: CSSProperties = {
   color: '#fff',
   padding: 0,
   border: '1px solid rgba(255,255,255,0.15)',
-  overflow: 'hidden',
-}
-
-const RECEIPT_CONTAINER: CSSProperties = {
-  width: '100%',
-  padding: 0,
-  border: '3px solid rgba(255,255,255,0.9)',
   overflow: 'hidden',
 }
 
@@ -102,26 +77,6 @@ export interface PaidCheckoutProps {
   sendTransaction?: UsePaidPaymentOptions['sendTransaction']
 }
 
-// ─── Animation variants ────────────────────────────────────────────────────
-
-const paidFadeIn = {
-  initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-  exit: { opacity: 0, y: -8 },
-}
-
-const paidStagger = {
-  animate: { transition: { staggerChildren: 0.08 } },
-}
-
-const paidStamp = {
-  initial: { scale: 3, opacity: 0, rotate: -12 },
-  animate: {
-    scale: 1, opacity: 1, rotate: -6,
-    transition: { type: 'spring', stiffness: 400, damping: 15, delay: 0.3 },
-  },
-}
-
 // ─── Format helpers ────────────────────────────────────────────────────────
 
 function formatUsd(usd: number): string {
@@ -160,41 +115,6 @@ function formatTokenAmount(amount: string, symbol?: string, decimals?: number): 
   }
 
   return val.toFixed(maxDecimals).replace(/\.?0+$/, '')
-}
-
-// ─── Motion-aware wrapper ──────────────────────────────────────────────────
-
-function M({
-  tag = 'div',
-  children,
-  style,
-  onClick,
-  onMouseEnter,
-  onMouseLeave,
-  ...motionProps
-}: {
-  tag?: 'div' | 'button'
-  children?: ReactNode
-  style?: CSSProperties
-  onClick?: () => void
-  onMouseEnter?: (e: React.MouseEvent) => void
-  onMouseLeave?: (e: React.MouseEvent) => void
-  [key: string]: unknown
-}) {
-  if (motion) {
-    const Component = tag === 'button' ? motion.button : motion.div
-    return (
-      <Component style={style} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} {...motionProps}>
-        {children}
-      </Component>
-    )
-  }
-  const Tag = tag
-  return (
-    <Tag style={style} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      {children}
-    </Tag>
-  )
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────
@@ -236,23 +156,13 @@ function PaidButton({
     ...extraStyle,
   }
 
-  if (motion) {
-    return (
-      <motion.button
-        onClick={onClick}
-        style={{ ...base, transform: undefined, boxShadow: undefined }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        whileHover={{ x: -2, y: -2, boxShadow: '4px 4px 0px currentColor' }}
-        whileTap={{ scale: 0.97 }}
-      >
-        {children}
-      </motion.button>
-    )
-  }
-
   return (
-    <button onClick={onClick} style={base} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <button
+      onClick={onClick}
+      style={base}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {children}
     </button>
   )
@@ -309,7 +219,6 @@ function TokenLogo({ token, size = 40 }: { token: TokenInfo; size?: number }) {
   )
 }
 
-
 function PoweredByFooter({ color = 'white' }: { color?: 'white' | 'black' }) {
   const muted = color === 'white' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)'
   return (
@@ -332,8 +241,8 @@ export function PaidCheckout({
   amountDisplay,
   recipient,
   refundAddress,
-  receiptTheme = 'light',
-  metadata,
+  receiptTheme: _receiptTheme = 'light',
+  metadata: _metadata,
   calldata,
   destinationContract,
   onComplete,
@@ -358,28 +267,38 @@ export function PaidCheckout({
     [isControlled, onOpenChange],
   )
 
+  // Drawer mount / animation state
+  const [mounted, setMounted] = useState(drawerOpen)
+  const [animClass, setAnimClass] = useState('')
+  const closingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (closingTimer.current) clearTimeout(closingTimer.current)
+    if (drawerOpen) {
+      setMounted(true)
+      // Double rAF to ensure DOM is painted before adding class
+      requestAnimationFrame(() => requestAnimationFrame(() => setAnimClass('open')))
+    } else {
+      setAnimClass('')
+      closingTimer.current = setTimeout(() => setMounted(false), 350)
+    }
+    return () => { if (closingTimer.current) clearTimeout(closingTimer.current) }
+  }, [drawerOpen])
+
   // ─── Payment hook ─────────────────────────────────────────────────
   const payment = usePaidPayment({
     recipient,
     amountUsd,
     amountRaw,
     refundAddress,
-    metadata,
+    metadata: _metadata,
     calldata,
     destinationContract,
     sendTransaction,
-    onComplete: (receipt) => {
-      onComplete?.(receipt)
-    },
-    onBounced: (receipt) => {
-      onBounced?.(receipt)
-    },
-    onExpired: () => {
-      // Handled via state rendering
-    },
-    onError: (error) => {
-      onError?.(error)
-    },
+    onComplete: (receipt) => { onComplete?.(receipt) },
+    onBounced: (receipt) => { onBounced?.(receipt) },
+    onExpired: () => {},
+    onError: (error) => { onError?.(error) },
   })
 
   // ─── Token pagination ─────────────────────────────────────────────
@@ -399,7 +318,6 @@ export function PaidCheckout({
     autoSelectedRef[1](true)
     payment.pay(payment.tokens[0])
   }
-  // Reset auto-select flag when returning to idle
   if (payment.state === 'idle' && autoSelectedRef[0]) {
     autoSelectedRef[1](false)
   }
@@ -413,6 +331,18 @@ export function PaidCheckout({
     setTokenPage(0)
     autoSelectedRef[1](false)
   }, [canClose, setDrawerOpen, payment, autoSelectedRef])
+
+  // ─── Auto-close on success ────────────────────────────────────────
+  useEffect(() => {
+    if (payment.state !== 'completed') return
+    const timer = setTimeout(() => {
+      setDrawerOpen(false)
+      payment.reset()
+      setTokenPage(0)
+      autoSelectedRef[1](false)
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [payment.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRetry = useCallback(() => {
     payment.reset()
@@ -442,23 +372,20 @@ export function PaidCheckout({
   type View = 'loading' | 'select_token' | 'confirming' | 'result'
   let activeView: View = 'loading'
   if (payment.state === 'awaiting_selection') activeView = 'select_token'
-  else if (payment.state === 'confirming' || payment.state === 'polling') activeView = 'confirming'
-  else if (['completed', 'bounced', 'expired', 'error'].includes(payment.state)) activeView = 'result'
+  else if (payment.state === 'confirming' || payment.state === 'polling' || payment.state === 'completed') activeView = 'confirming'
+  else if (['bounced', 'expired', 'error'].includes(payment.state)) activeView = 'result'
 
-  const isSuccessReceipt = activeView === 'result' && payment.state === 'completed'
-  const containerStyle = isSuccessReceipt ? RECEIPT_CONTAINER : CONTAINER
+  // ─── Shared values ────────────────────────────────────────────────
+  const pendingTokenAmount = payment.selectedToken && amountUsd != null
+    ? `${formatTokenAmount(PaidClient.computePayAmount(amountUsd, payment.selectedToken), payment.selectedToken.symbol, payment.selectedToken.decimals)} ${payment.selectedToken.symbol}`
+    : payment.selectedToken?.symbol ?? ''
+
+  const isSuccess = payment.state === 'completed'
 
   // ─── View renderers ───────────────────────────────────────────────
 
   const renderLoading = () => (
-    <M
-      key="loading"
-      style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 20 }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
-    >
+    <div className="paid-view" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 20 }}>
       <DrawerHeader title={title} subtitle={subtitle} />
       {effectiveAmountDisplay && (
         <div style={{ textAlign: 'center', padding: '8px 0' }}>
@@ -468,19 +395,20 @@ export function PaidCheckout({
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '32px 0' }}>
-        <M animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}>
+        <div style={{ animation: 'paid-bolt-pulse 2s ease-in-out infinite' }}>
           <BoltIcon size="lg" color="white" />
-        </M>
-        <M
-          style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0, ...mono }}
-          animate={{ opacity: [0.4, 0.8, 0.4] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        >
+        </div>
+        <p style={{
+          color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem',
+          textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0,
+          animation: 'paid-bolt-pulse 2s ease-in-out infinite',
+          ...mono,
+        }}>
           FINDING OPTIONS...
-        </M>
+        </p>
       </div>
       <PoweredByFooter />
-    </M>
+    </div>
   )
 
   const renderTokenSelection = () => {
@@ -489,14 +417,7 @@ export function PaidCheckout({
     const hasBack = tokenPage > 0
 
     return (
-      <M
-        key="select_token"
-        style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 20 }}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.35, ease: 'easeOut' }}
-      >
+      <div className="paid-view" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 20 }}>
         <DrawerHeader title={title} subtitle={subtitle} />
         {effectiveAmountDisplay && (
           <div style={{ textAlign: 'center', padding: '8px 0' }}>
@@ -528,32 +449,24 @@ export function PaidCheckout({
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.625rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2em', textAlign: 'center', ...mono }}>
               Pay with
             </p>
-            <M
-              key={`token-page-${tokenPage}`}
-              style={{ display: 'flex', flexDirection: 'column' }}
-              variants={paidStagger}
-              initial="initial"
-              animate="animate"
-            >
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
               {pageTokens.map((token, index) => {
                 const tokenCost = amountUsd != null && payment.feeConfig
                   ? PaidClient.computePayAmountWithFee(amountUsd, token, payment.feeConfig)
                   : (amountUsd != null ? PaidClient.computePayAmount(amountUsd, token) : null)
                 return (
-                  <M
-                    tag="button"
+                  <button
                     key={`${token.chainId}-${token.tokenAddress}`}
                     onClick={() => payment.pay(token)}
                     style={{
                       width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: 14, backgroundColor: 'transparent', color: '#fff', cursor: 'pointer',
-                      border: 'none', borderBottom: '2px solid rgba(255,255,255,0.1)', transition: 'background-color 0.15s',
+                      border: 'none', borderBottom: '2px solid rgba(255,255,255,0.1)',
+                      transition: 'background-color 0.15s',
+                      animation: `paid-fade-in 0.3s ease-out ${index * 0.08}s both`,
                     }}
-                    variants={paidFadeIn}
-                    transition={{ duration: 0.3, delay: index * 0.08 }}
-                    whileTap={{ scale: 0.97 }}
-                    onMouseEnter={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)' }}
-                    onMouseLeave={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)' }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <TokenLogo token={token} size={40} />
@@ -569,24 +482,21 @@ export function PaidCheckout({
                     <p style={{ fontSize: '0.875rem', fontWeight: 700, color: 'rgba(255,255,255,0.5)', margin: 0, ...mono }}>
                       {formatUsd(token.balanceUsd)}
                     </p>
-                  </M>
+                  </button>
                 )
               })}
 
               {hasMore && (
-                <M
-                  tag="button"
+                <button
                   onClick={() => setTokenPage(1)}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: 14, backgroundColor: 'transparent', color: '#fff', cursor: 'pointer',
                     border: 'none', transition: 'background-color 0.15s',
+                    animation: `paid-fade-in 0.3s ease-out ${pageTokens.length * 0.08}s both`,
                   }}
-                  variants={paidFadeIn}
-                  transition={{ duration: 0.3, delay: pageTokens.length * 0.08 }}
-                  whileTap={{ scale: 0.97 }}
-                  onMouseEnter={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)' }}
-                  onMouseLeave={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ width: 40, height: 40, border: '2px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -597,23 +507,20 @@ export function PaidCheckout({
                   <p style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.2)', margin: 0, ...mono }}>
                     {payment.tokens.length - TOKENS_PER_PAGE} more
                   </p>
-                </M>
+                </button>
               )}
 
               {hasBack && (
-                <M
-                  tag="button"
+                <button
                   onClick={() => setTokenPage(0)}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: 14, backgroundColor: 'transparent', color: '#fff', cursor: 'pointer',
                     border: 'none', transition: 'background-color 0.15s',
+                    animation: `paid-fade-in 0.3s ease-out ${pageTokens.length * 0.08}s both`,
                   }}
-                  variants={paidFadeIn}
-                  transition={{ duration: 0.3, delay: pageTokens.length * 0.08 }}
-                  whileTap={{ scale: 0.97 }}
-                  onMouseEnter={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)' }}
-                  onMouseLeave={(e: React.MouseEvent) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ width: 40, height: 40, border: '2px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -621,63 +528,96 @@ export function PaidCheckout({
                     </div>
                     <p style={{ fontSize: '0.875rem', fontWeight: 700, color: 'rgba(255,255,255,0.4)', margin: 0, ...mono }}>Back</p>
                   </div>
-                </M>
+                </button>
               )}
-            </M>
+            </div>
           </>
         )}
 
         <PoweredByFooter />
-      </M>
+      </div>
     )
   }
 
   const renderConfirming = () => (
-    <M
-      key="confirming"
-      style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: 20 }}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={{ duration: 0.35, ease: 'easeOut' }}
-    >
+    <div className="paid-view" style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <BoltIcon size="sm" color="white" />
         <span style={{ fontSize: '1.125rem', color: '#fff', ...brand }}>PAID</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '24px 0' }}>
-        <M animate={{ scale: [1, 1.1, 1], opacity: [0.6, 1, 0.6] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}>
-          <BoltIcon size="lg" color="white" />
-        </M>
-        {effectiveAmountDisplay && (
-          <p style={{ fontSize: '1.875rem', fontWeight: 700, color: '#fff', margin: 0, ...mono }}>
-            {effectiveAmountDisplay}
+
+        {/* ── Token logo → green check ── */}
+        <div style={{ position: 'relative', width: 64, height: 64 }}>
+          {payment.selectedToken && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              transition: 'transform 0.3s ease, opacity 0.3s ease',
+              transform: isSuccess ? 'scale(0.6)' : undefined,
+              opacity: isSuccess ? 0 : undefined,
+              animation: isSuccess ? undefined : 'paid-token-pulse 2s ease-in-out infinite',
+            }}>
+              <TokenLogo token={payment.selectedToken} size={64} />
+            </div>
+          )}
+          {!payment.selectedToken && !isSuccess && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: 'paid-bolt-pulse 2s ease-in-out infinite',
+            }}>
+              <BoltIcon size="lg" color="white" />
+            </div>
+          )}
+          {isSuccess && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: 'paid-check-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+            }}>
+              <div style={{
+                width: 64, height: 64, borderRadius: '50%',
+                backgroundColor: '#22c55e',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Amount / ticker ── */}
+        <div style={{
+          transition: 'opacity 0.3s, transform 0.3s',
+          opacity: isSuccess ? 0 : 1,
+          transform: isSuccess ? 'translateY(-8px)' : undefined,
+        }}>
+          {pendingTokenAmount && (
+            <p style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fff', margin: 0, textAlign: 'center', ...mono }}>
+              {pendingTokenAmount}
+            </p>
+          )}
+        </div>
+
+        {/* ── Status text ── */}
+        {isSuccess ? (
+          <p style={{
+            fontSize: '0.875rem', fontWeight: 700, color: '#22c55e',
+            textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0,
+            animation: 'paid-fade-up-in 0.2s ease-out 0.15s both',
+            ...mono,
+          }}>
+            PAID
           </p>
-        )}
-        {payment.selectedToken && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', border: '2px solid rgba(255,255,255,0.2)' }}>
-            <TokenLogo token={payment.selectedToken} size={24} />
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', ...mono }}>
-              {amountUsd != null
-                ? `~${formatTokenAmount(PaidClient.computePayAmount(amountUsd, payment.selectedToken), payment.selectedToken.symbol, payment.selectedToken.decimals)} ${payment.selectedToken.symbol}`
-                : payment.selectedToken.symbol}
-            </span>
-          </div>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-          <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0, ...mono }}>
-            {payment.state === 'confirming' ? 'CONFIRM IN WALLET' : 'PROCESSING...'}
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {[0, 1, 2].map((i) =>
-              motion ? (
-                <motion.div
-                  key={i}
-                  style={{ width: 6, height: 6, backgroundColor: 'rgba(255,255,255,0.6)' }}
-                  animate={{ scale: [1, 1.4, 1], opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 1, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
-                />
-              ) : (
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0, ...mono }}>
+              {payment.state === 'confirming' ? 'CONFIRM IN WALLET' : 'PROCESSING...'}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {[0, 1, 2].map((i) => (
                 <div
                   key={i}
                   style={{
@@ -685,143 +625,27 @@ export function PaidCheckout({
                     animation: `paid-pulse 1s ease-in-out ${i * 0.2}s infinite`,
                   }}
                 />
-              ),
-            )}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
       <PoweredByFooter />
-    </M>
+    </div>
   )
 
   const renderResult = () => {
-    // ── Success receipt ──
-    if (payment.state === 'completed') {
-      const ink = receiptTheme === 'light' ? '#000' : '#fff'
-      const paper = receiptTheme === 'light' ? '#fff' : '#000'
-      const muted = '#888'
-      const borderColor = receiptTheme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'
-      const dividerColor = receiptTheme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'
-      const stampBorder = receiptTheme === 'light' ? '#000' : '#fff'
-
-      const srcSymbol = payment.statusData?.source?.tokenSymbol || payment.selectedToken?.symbol || '—'
-      const rawSrcAmount = payment.statusData?.source?.amountUnits
-        || (amountUsd != null && payment.selectedToken ? PaidClient.computePayAmount(amountUsd, payment.selectedToken) : null)
-      const srcAmount = rawSrcAmount ? formatTokenAmount(rawSrcAmount, srcSymbol, payment.selectedToken?.decimals) : '—'
-      const srcUsd = payment.statusData?.source?.usdValue
-        ? `$${parseFloat(payment.statusData.source.usdValue).toFixed(2)}`
-        : (amountUsd != null ? `$${amountUsd.toFixed(2)}` : effectiveAmountDisplay || '—')
-      const receiptId = payment.sessionId ? payment.sessionId.slice(0, 8) : '—'
-      const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
-
-      const destData = payment.statusData?.destination
-      const showReceivedRow = destData?.amountUnits && destData.tokenSymbol !== srcSymbol
-
-      return (
-        <M key="result" style={{ display: 'flex', flexDirection: 'column' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-          <M style={{ display: 'flex', flexDirection: 'column', backgroundColor: paper, color: ink }} variants={paidFadeIn} initial="initial" animate="animate">
-            <div style={{ padding: '20px 20px 0' }}>
-              <M style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3 }}>
-                <BoltIcon size="sm" color={receiptTheme === 'light' ? 'black' : 'white'} />
-                <span style={{ fontSize: '1.25rem', ...brand, color: ink }}>PAID</span>
-              </M>
-              <p style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>
-                Receipt #{receiptId}
-              </p>
-              <p style={{ fontSize: '0.625rem', marginTop: 4, color: muted, ...mono }}>{timestamp}</p>
-            </div>
-
-            <div style={{ padding: '12px 20px' }}><div style={{ borderTop: `1px dashed ${borderColor}` }} /></div>
-
-            <div style={{ padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <p style={{ fontSize: '0.875rem', fontWeight: 700, textTransform: 'uppercase', margin: 0, ...mono, color: ink }}>{title}</p>
-              <p style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0, ...mono, color: ink }}>{effectiveAmountDisplay || srcUsd}</p>
-            </div>
-
-            <div style={{ padding: '12px 20px' }}><div style={{ borderTop: `1px dashed ${borderColor}` }} /></div>
-
-            <M style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 8 }} variants={paidStagger} initial="initial" animate="animate">
-              <M style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Sent</span>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{srcAmount} {srcSymbol}</span>
-              </M>
-              <M style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Value</span>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{srcUsd}</span>
-              </M>
-              {showReceivedRow && (
-                <M style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                  <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>Received</span>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>
-                    {formatTokenAmount(destData!.amountUnits!, destData!.tokenSymbol)} {destData!.tokenSymbol}
-                  </span>
-                </M>
-              )}
-              {metadata && Object.entries(metadata).map(([key, value]) => (
-                <M key={key} style={{ display: 'flex', justifyContent: 'space-between' }} variants={paidFadeIn}>
-                  <span style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: muted, ...mono }}>{key}</span>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, ...mono, color: ink }}>{value}</span>
-                </M>
-              ))}
-            </M>
-
-            <div style={{ padding: '16px 20px' }}><div style={{ borderTop: `3px solid ${dividerColor}` }} /></div>
-
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
-              <M style={{ padding: '12px 32px', border: `3px solid ${stampBorder}` }} variants={paidStamp} initial="initial" animate="animate">
-                <span style={{ fontSize: '2.25rem', letterSpacing: '0.05em', ...brand, color: ink }}>PAID</span>
-              </M>
-            </div>
-
-            <PoweredByFooter color={receiptTheme === 'light' ? 'black' : 'white'} />
-
-            <div style={{ padding: '0 20px 20px' }}>
-              {motion ? (
-                <motion.button
-                  onClick={handleClose}
-                  style={{
-                    width: '100%', padding: '12px 24px', border: `2px solid ${ink}`,
-                    fontSize: '0.875rem', fontWeight: 700, textTransform: 'uppercase',
-                    letterSpacing: '0.05em', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', cursor: 'pointer',
-                    backgroundColor: ink, color: paper, ...mono,
-                  }}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.6, duration: 0.3 }}
-                  whileHover={{ x: -2, y: -2, boxShadow: `4px 4px 0px ${ink}` }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  Done
-                </motion.button>
-              ) : (
-                <button
-                  onClick={handleClose}
-                  style={{
-                    width: '100%', padding: '12px 24px', border: `2px solid ${ink}`,
-                    fontSize: '0.875rem', fontWeight: 700, textTransform: 'uppercase',
-                    letterSpacing: '0.05em', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', cursor: 'pointer',
-                    backgroundColor: ink, color: paper, ...mono,
-                  }}
-                >
-                  Done
-                </button>
-              )}
-            </div>
-          </M>
-        </M>
-      )
-    }
-
     // ── Bounced ──
     if (payment.state === 'bounced') {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 20px' }}>
-          <M style={{ width: 56, height: 56, border: '2px solid rgba(255,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
+        <div className="paid-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 20px' }}>
+          <div style={{
+            width: 56, height: 56, border: '2px solid rgba(255,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'paid-pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}>
             <span style={{ color: '#ff0000', fontSize: 26 }}>!</span>
-          </M>
+          </div>
           <div style={{ textAlign: 'center' }}>
             <p style={{ color: '#ff0000', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', ...mono }}>Payment bounced</p>
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', ...mono }}>The payment was returned. Try again.</p>
@@ -835,11 +659,14 @@ export function PaidCheckout({
     // ── Expired ──
     if (payment.state === 'expired') {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 20px' }}>
-          <M style={{ width: 56, height: 56, border: '2px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
+        <div className="paid-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 20px' }}>
+          <div style={{
+            width: 56, height: 56, border: '2px solid rgba(255,255,255,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'paid-pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}>
             <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 26 }}>!</span>
-          </M>
+          </div>
           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', ...mono }}>Session expired</p>
           <PaidButton onClick={handleRetry}>Try again</PaidButton>
           <PoweredByFooter />
@@ -849,11 +676,14 @@ export function PaidCheckout({
 
     // ── Error ──
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 20px' }}>
-        <M style={{ width: 56, height: 56, border: '2px solid rgba(255,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          initial={{ scale: 0, rotate: -10 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
+      <div className="paid-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '24px 20px' }}>
+        <div style={{
+          width: 56, height: 56, border: '2px solid rgba(255,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'paid-pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}>
           <span style={{ color: '#ff0000', fontSize: 26 }}>!</span>
-        </M>
+        </div>
         <div style={{ textAlign: 'center' }}>
           <p style={{ color: '#ff0000', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', ...mono }}>Something went wrong</p>
           {payment.error && <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.625rem', padding: '0 16px', ...mono }}>{payment.error}</p>}
@@ -864,63 +694,35 @@ export function PaidCheckout({
     )
   }
 
-  // ─── Overlay / Portal ─────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────
 
-  if (!drawerOpen) return <>{trigger}</>
-
-  const overlayStyle: CSSProperties = {
-    position: 'fixed', inset: 0, zIndex: 99999,
-    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-  }
-
-  const backdropStyle: CSSProperties = {
-    position: 'absolute', inset: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)',
-  }
-
-  const drawerStyle: CSSProperties = {
-    position: 'relative', width: '100%', maxWidth: 448, maxHeight: '90dvh', overflowY: 'auto',
-  }
-
-  const viewContent = (
-    <>
-      {activeView === 'loading' && renderLoading()}
-      {activeView === 'select_token' && renderTokenSelection()}
-      {activeView === 'confirming' && renderConfirming()}
-      {activeView === 'result' && renderResult()}
-    </>
-  )
-
-  const drawer = motion && AnimatePresence ? (
-    <AnimatePresence>
-      {drawerOpen && (
-        <motion.div style={overlayStyle} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div style={backdropStyle} onClick={canClose ? handleClose : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
-          <motion.div style={drawerStyle} initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}>
-            <div style={{ position: 'relative', width: '100%', margin: '0 auto' }}>
-              <div style={containerStyle}>
-                <AnimatePresence mode="wait">{viewContent}</AnimatePresence>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  ) : (
-    <div style={overlayStyle}>
-      <div style={backdropStyle} onClick={canClose ? handleClose : undefined} />
-      <div style={drawerStyle}>
-        <div style={{ position: 'relative', width: '100%', margin: '0 auto' }}>
-          <div style={containerStyle}>{viewContent}</div>
-        </div>
-      </div>
-    </div>
-  )
+  if (!mounted) return <>{trigger}</>
 
   return (
     <>
       {trigger}
-      {createPortal(drawer, document.body)}
+      {createPortal(
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99999,
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        }}>
+          <div
+            className={`paid-backdrop ${animClass}`}
+            onClick={canClose ? handleClose : undefined}
+          />
+          <div className={`paid-drawer ${animClass}`}>
+            <div style={{ position: 'relative', width: '100%', margin: '0 auto' }}>
+              <div style={CONTAINER}>
+                {activeView === 'loading' && renderLoading()}
+                {activeView === 'select_token' && renderTokenSelection()}
+                {activeView === 'confirming' && renderConfirming()}
+                {activeView === 'result' && renderResult()}
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   )
 }

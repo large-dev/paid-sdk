@@ -1,19 +1,38 @@
-/* ─── @paid/sdk self-contained styles ────────────────────────────────────
- * Import this once in your app:
- *   import '@paid/sdk/styles.css'
- *
- * Or reference it in your CSS:
- *   @import '@paid/sdk/styles.css';
+/* ─── @paid/sdk styles ────────────────────────────────────────────────────
+ * Import once: import '@paidstudio/sdk/styles.css'
  * ────────────────────────────────────────────────────────────────────── */
 
-@keyframes paid-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.4; }
-  50% { transform: scale(1.4); opacity: 1; }
+/* ─── Drawer ─────────────────────────────────────────────────────────── */
+
+.paid-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(2px);
+  opacity: 0; transition: opacity 0.3s ease;
 }
+.paid-backdrop.open { opacity: 1; }
+
+.paid-drawer {
+  position: relative; width: 100%; max-width: 448px;
+  max-height: 90dvh; overflow-y: auto;
+  transform: translateY(100%);
+  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.paid-drawer.open { transform: translateY(0); }
+
+/* ─── View fade-in ───────────────────────────────────────────────────── */
 
 @keyframes paid-fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.paid-view { animation: paid-fade-in 0.3s ease-out; }
+
+/* ─── Pulse / loading ────────────────────────────────────────────────── */
+
+@keyframes paid-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.4); opacity: 1; }
 }
 
 @keyframes paid-bolt-pulse {
@@ -21,14 +40,34 @@
   50% { opacity: 1; }
 }
 
-@keyframes paid-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+@keyframes paid-token-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.05); opacity: 1; }
 }
 
-/* Optional: apply to the drawer portal */
-[data-paid-drawer] {
-  font-family: 'Courier New', Courier, monospace;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* ─── Success ────────────────────────────────────────────────────────── */
+
+@keyframes paid-check-in {
+  0% { transform: scale(2.5) rotate(-20deg); opacity: 0; }
+  50% { transform: scale(0.9) rotate(2deg); opacity: 1; }
+  75% { transform: scale(1.05) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+@keyframes paid-fade-up-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes paid-fade-up-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Error icon ─────────────────────────────────────────────────────── */
+
+@keyframes paid-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
