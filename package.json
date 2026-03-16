@@ -1,6 +1,6 @@
 {
   "name": "@paidstudio/sdk",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "private": false,
   "description": "Drop-in crypto payment checkout for any React app. Powered by PAID.",
@@ -19,6 +19,11 @@
       "types": "./dist/react/index.d.ts"
     },
     "./styles.css": "./dist/styles.css"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
   },
   "files": [
     "dist",
